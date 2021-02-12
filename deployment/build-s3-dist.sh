@@ -60,24 +60,39 @@ sed -i -e $replace $template_dir/../README.md
 cp $template_dist_dir/video-on-demand-on-aws.template $build_dist_dir/
 
 echo "------------------------------------------------------------------------------"
+echo "Download mediainfo binary for AWS Lambda"
+echo "------------------------------------------------------------------------------"
+cd $source_dir/mediainfo/
+rm -rf bin/*
+curl -O https://mediaarea.net/download/binary/mediainfo/20.09/MediaInfo_CLI_20.09_Lambda.zip
+unzip MediaInfo_CLI_20.09_Lambda.zip 
+mv LICENSE bin/
+chmod +x ./bin/mediainfo
+rm -r MediaInfo_CLI_20.09_Lambda.zip
+
+cd $source_dir/
+echo "------------------------------------------------------------------------------"
 echo "Lambda Functions"
 echo "------------------------------------------------------------------------------"
-cd $source_dir
-chmod +x ./mediainfo/bin/mediainfo
 
 for folder in */ ; do
     cd "$folder"
+
     function_name=${PWD##*/}
-    echo "Creating deployment package for $function_name"
+    zip_path="$build_dist_dir/$function_name.zip"
+
+    echo "Creating deployment package for $function_name at $zip_path"
 
     if [ -e "package.json" ]; then
         rm -rf node_modules/
-        npm install --production
-        rm package-lock.json
+        npm i --production
 
-        zip -q -r9 "$build_dist_dir/$function_name.zip" .
-    else
-        python3 setup.py build_pkg --zip-path="$build_dist_dir/$function_name.zip"
+        zip -q -r9 $zip_path .
+    elif [ -e "setup.py" ]; then
+        # If you're running this command on macOS and Python3 has been installed using Homebrew, you might see this issue:
+        #    DistutilsOptionError: must supply either home or prefix/exec-prefix
+        # Please follow the workaround suggested on this StackOverflow answer: https://stackoverflow.com/a/4472877
+        python3 setup.py build_pkg --zip-path=$zip_path
     fi
 
     cd ..

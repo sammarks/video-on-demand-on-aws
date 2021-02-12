@@ -1,5 +1,5 @@
 /*********************************************************************************************************************
- *  Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.                                           *
+ *  Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.                                           *
  *                                                                                                                    *
  *  Licensed under the Apache License, Version 2.0 (the "License"). You may not use this file except in compliance    *
  *  with the License. A copy of the License is located at                                                             *
@@ -41,18 +41,25 @@ exports.handler = async (event, context) => {
                     await MediaConvert.createTemplates(config);
                     break;
 
-                case ('UUID'):
-                    responseData = {
-                        UUID: uuidv4()
-                    };
+                case 'UUID':
+                    responseData = { UUID: uuidv4() };
                     break;
 
-                case ('AnonymousMetric'):
+                case 'AnonymousMetric':
                     await Metrics.send(config);
                     break;
 
-                case ('MediaPackageVod'):
-                    responseData = await MediaPackage.create(config);
+                case 'MediaPackageVod':
+                    if (config.EnableMediaPackage === 'true') {
+                        responseData = await MediaPackage.create(config);
+                    }
+                    else {
+                        // response data with these attributes still needs to be returned even if we're not using MediaPackageVod
+                        responseData = {
+                            GroupId: null,
+                            GroupDomainName: null
+                        };
+                    }
                     break;
 
                 default:
@@ -73,20 +80,38 @@ exports.handler = async (event, context) => {
                     await MediaConvert.updateTemplates(config);
                     break;
 
+                case 'MediaPackageVod':
+                    if (config.EnableMediaPackage === 'true') {
+                        responseData = await MediaPackage.update(config);
+                    }
+                    else {
+                        // response data with these attributes still needs to be returned even if we're not using MediaPackageVod
+                        responseData = {
+                            GroupId: null,
+                            GroupDomainName: null
+                        };
+                    }
+                    break;
                 default:
                     console.log(config.Resource, ': update not supported, sending success response');
             }
         }
         if (event.RequestType === 'Delete') {
             switch (config.Resource) {
-                // Feature/so-vod-173 limit on the number of custom presets per region,
-                // deleting on a stack delete
                 case 'MediaConvertTemplates':
                     await MediaConvert.deleteTemplates(config);
                     break;
 
                 case 'MediaPackageVod':
-                    responseData = await MediaPackage.purge(config);
+                    if (config.EnableMediaPackage === 'true') {
+                        responseData = await MediaPackage.purge(config);
+                    }
+                    else {
+                        // response data with these attributes still needs to be returned even if we're not using MediaPackageVod
+                        responseData = {
+                            GroupId: null
+                        };
+                    }
                     break;
 
                 default:
@@ -94,7 +119,7 @@ exports.handler = async (event, context) => {
             }
         }
 
-        let response = await cfn.send(event, context, 'SUCCESS', responseData);
+        const response = await cfn.send(event, context, 'SUCCESS', responseData);
         console.log(`RESPONSE:: ${JSON.stringify(responseData, null, 2)}`);
         console.log(`CFN STATUS:: ${response}`);
     } catch (err) {

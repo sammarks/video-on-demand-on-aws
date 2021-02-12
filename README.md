@@ -1,7 +1,7 @@
 # Video on Demand on AWS
 
 How to implement a video-on-demand workflow on AWS leveraging AWS Step Functions, AWS Elemental MediaConvert, and AWS Elemental MediaPackage.
-Source code for [Video on Demand on AWS](https://aws.amazon.com/answers/media-entertainment/video-on-demand-on-aws/) solution.
+Source code for [Video on Demand on AWS](https://aws.amazon.com/solutions/video-on-demand-on-aws/) solution.
 
 ## On this Page
 - [Architecture Overview](#architecture-overview)
@@ -10,6 +10,8 @@ Source code for [Video on Demand on AWS](https://aws.amazon.com/answers/media-en
 - [Source Metadata Option](#source-metadata-option)
 - [Encoding Templates](#encoding-templates)
 - [QVBR Mode](#qvbr-mode)
+- [Accelerated Transcoding](#accelerated-transcoding)
+- [Source Code](#source-code)
 - [Creating a custom Build](#creating-a-custom-build)
 - [Additional Resources](#additional-resources)
 
@@ -35,6 +37,9 @@ The workflow configuration is set at deployment and is defined as environment va
 * **MediaConvert_Template_720p:**	The name of the SD template in MediaConvert
 * **Source:**	The name of the source S3 bucket
 * **WorkflowName:**	Used to tag all of the MediaConvert encoding jobs
+* **acceleratedTranscoding** Enabled Accelerated Transocding in MediaConvert. options include ENABLE, DISABLE, PREFERRED. for more detials please see: 
+* **enableSns** Send SNS notifications for the workflow results.
+* **enableSqs** Send the workflow results to an SQS queue
 
 ### WorkFlow Triggers
 
@@ -62,7 +67,7 @@ The only required field for the metadata file is the **srcVideo**. The workflow 
 ```
 {
     "srcVideo": "string",
-    "archiveSource": boolean,
+    "archiveSource": string,
     "frameCapture": boolean,
     "srcBucket": "string",
     "destBucket": "string",
@@ -71,7 +76,12 @@ The only required field for the metadata file is the **srcVideo**. The workflow 
     "jobTemplate_1080p": "string",
     "jobTemplate_720p": "string",
     "jobTemplate": "custom-job-template",
-    "inputRotate": "DEGREE_0|DEGREES_90|DEGREES_180|DEGREES_270|AUTO"
+    "inputRotate": "DEGREE_0|DEGREES_90|DEGREES_180|DEGREES_270|AUTO",
+    "captions": {
+        "srcFile": "string",
+        "fontSize": integer,
+        "fontColor": "WHITE|BLACK|YELLOW|RED|GREEN|BLUE"
+    }
 }
 ```
 
@@ -99,20 +109,28 @@ AWS MediaConvert Quality-defined Variable Bit-Rate (QVBR) control mode gets the 
 
 | Resolution   |      MaxBitrate      |  QvbrQualityLevel |
 |----------|:-------------:|------:|
-| 2160p |  20000kbps | 8 |
+| 2160p |  15000Kbps | 9 |
 | 1080p |  8500Kbps  | 8 |
-| 720p  |  6500Kbps  | 8 |
+| 720p  |  6000Kbps  | 8 |
 | 720p  |  5000Kbps  | 8 |
-| 720p  |  3500Kbps  | 7 |
-| 540p  |  6500Kbps  | 7 |
 | 540p  |  3500Kbps  | 7 |
-| 360p  |  1200Kbps  | 7 |
-| 360p  |  600Kbps   | 7 |
+| 360p  |  1500Kbps  | 7 |
 | 270p  |  400Kbps   | 7 |
 
 For more detail please see [QVBR and MediaConvert](https://docs.aws.amazon.com/mediaconvert/latest/ug/cbr-vbr-qvbr.html).
 
-## Source code (Node.js 10)
+## Accelerated Transcoding 
+Version 5.1.0 introduces support for accelerated transcoding which is a pro tier  feature of AWS Elemental MediaConvert. This feature can be configured when launching the template with one of the following options:
+
+* **ENABLED** All files upload will have acceleration enabled. Files that are not supported will not be processed and the workflow will fail
+* **PREFERRED** All files uploaded will be processed but only supported files will have acceleration enabled, the workflow will not fail.
+* **DISABLED** No acceleration.
+
+For more detail please see [Accelerated Transcoding](https://docs.aws.amazon.com/mediaconvert/latest/ug/accelerated-transcoding.html).
+
+## Source code
+
+### Node.js 12
 * **archive-source:** Lambda function to tag the source video in s3 to enable the Glacier lifecycle policy.
 * **custom-resource:** Lambda backed CloudFormation custom resource to deploy MediaConvert templates configure S3 event notifications.
 * **dynamo:** Lambda function to Update DynamoDB.
@@ -124,10 +142,10 @@ For more detail please see [QVBR and MediaConvert](https://docs.aws.amazon.com/m
 * **profiler:** Lambda function used to send publish and/or error notifications.
 * **step-functions:** Lambda function to trigger AWS Step Functions.
 
-## Source code (Python 3.7)
-> **Note**: The _mediainfo_ function uses the python3.7 runtime since the distributable was compiled on Amazon Linux, and the [Operating System for the node version 10 runtime](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtimes.html) is Amazon Linux 2.
+### Python 3.7
+* **mediainfo:** Lambda function to run [mediainfo](https://mediaarea.net/en/MediaInfo) on an S3 signed url.
 
-* **mediainfo:** Lambda function to run mediainfo on s3 signed url. https://mediaarea.net/en/MediaInfo. bin/mediainfo must be made executable before deploying to lambda.
+> ./source/mediainfo/bin/mediainfo must be made executable before deploying to lambda.
 
 ## Creating a custom build
 The solution can be deployed through the CloudFormation template available on the solution home page: [Video on Demand on AWS](https://aws.amazon.com/answers/media-entertainment/video-on-demand-on-aws/).
@@ -135,8 +153,8 @@ To make changes to the solution, download or clone this repo, update the source 
 
 ### Prerequisites:
 * [AWS Command Line Interface](https://aws.amazon.com/cli/)
-* Node.js 10.x or later
-* Python 3.7 or later
+* Node.js 12.x or later
+* Python 3.8 or later
 
 ### 1. Running unit tests for customization
 Run unit tests to make sure added customization passes the tests:
@@ -152,21 +170,45 @@ The CloudFormation template is configured to pull the Lambda deployment packages
 aws s3 mb s3://my-bucket-us-east-1
 ```
 
-### 3. Create the deployment packages
+### 3. Build MediaInfo
+Build MediaInfo using the following commands on an [EC2 instance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/EC2_GetStarted.html) running an Amazon Linux AMI. 
+
+```console
+sudo yum update -y
+sudo yum groupinstall 'Development Tools' -y
+sudo yum install libcurl-devel -y
+wget https://mediaarea.net/download/binary/mediainfo/20.09/MediaInfo_CLI_20.09_GNU_FromSource.tar.xz
+tar xvf MediaInfo_CLI_20.09_GNU_FromSource.tar.xz
+cd MediaInfo_CLI_GNU_FromSource/
+./CLI_Compile.sh --with-libcurl
+```
+
+Run these commands to confirm the compilation was successful:
+```console
+cd MediaInfo/Project/GNU/CLI/
+./mediainfo --version
+```
+Copy the mediainfo binary into the `source/mediainfo/bin` directory of your cloned respository.
+
+If you'd like to use a precompiled MediaInfo binary for Lambda built by the MediaArea team, you can download it [here](https://mediaarea.net/en/MediaInfo/Download/Lambda). 
+For more information, check out the [MediaInfo site](https://mediaarea.net/en/MediaInfo).
+
+
+### 4. Create the deployment packages
 Build the distributable:
 ```
 chmod +x ./build-s3-dist.sh
-./build-s3-dist.sh my-bucket video-on-demand-on-aws v5.0.0-custom
+./build-s3-dist.sh my-bucket video-on-demand-on-aws version
 ```
 
 > **Notes**: The _build-s3-dist_ script expects the bucket name as one of its parameters, and this value should not include the region suffix.
 
 Deploy the distributable to the Amazon S3 bucket in your account:
 ```
-aws s3 cp ./regional-s3-assets/ s3://my-bucket-us-east-1/video-on-demand-on-aws/v5.0.0-custom/ --recursive --acl bucket-owner-full-control
+aws s3 cp ./regional-s3-assets/ s3://my-bucket-us-east-1/video-on-demand-on-aws/version/ --recursive --acl bucket-owner-full-control
 ```
 
-### 4. Launch the CloudFormation template.
+### 5. Launch the CloudFormation template.
 * Get the link of the video-on-demand-on-aws.template uploaded to your Amazon S3 bucket.
 * Deploy the Video on Demand to your account by launching a new AWS CloudFormation stack using the link of the video-on-demand-on-aws.template.
 
@@ -175,22 +217,22 @@ aws s3 cp ./regional-s3-assets/ s3://my-bucket-us-east-1/video-on-demand-on-aws/
 ### Services
 - [AWS Elemental MediaConvert](https://aws.amazon.com/mediaconvert/)
 - [AWS Elemental MediaPackage](https://aws.amazon.com/mediapackage/)
-- [AWS Step Functions](https://aws.amazon.com/mediapackage/)
+- [AWS Step Functions](https://aws.amazon.com/step-functions/)
 - [AWS Lambda](https://aws.amazon.com/lambda/)
 - [Amazon CloudFront](https://aws.amazon.com/cloudfront/)
 - [OTT Workflows](https://www.elemental.com/applications/ott-workflows)
 - [QVBR and MediaConvert](https://docs.aws.amazon.com/mediaconvert/latest/ug/cbr-vbr-qvbr.html)
 
 ### Other Solutions and Demos
-- [Live Streaming On AWS](https://aws.amazon.com/answers/media-entertainment/live-streaming/)
-- [Media Analysis Solution](https://aws.amazon.com/answers/media-entertainment/media-analysis-solution/)
+- [Live Streaming On AWS](https://aws.amazon.com/solutions/live-streaming-on-aws/)
+- [Media Analysis Solution](https://aws.amazon.com/solutions/media-analysis-solution/)
 - [Live Streaming and Live to VOD Workshop](https://github.com/awslabs/speke-reference-server)
 - [Live to VOD with Machine Learning](https://github.com/aws-samples/aws-elemental-instant-video-highlights)
 - [Demo SPEKE Reference Server](https://github.com/awslabs/speke-reference-server)
 
 ***
 
-Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

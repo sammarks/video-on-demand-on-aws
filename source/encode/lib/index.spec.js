@@ -1,5 +1,5 @@
 /*********************************************************************************************************************
- *  Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.                                           *
+ *  Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.                                           *
  *                                                                                                                    *
  *  Licensed under the Apache License, Version 2.0 (the "License"). You may not use this file except in compliance    *
  *  with the License. A copy of the License is located at                                                             *
@@ -28,7 +28,8 @@ describe('#ENCODE::', () => {
         jobTemplate: 'jobTemplate',
         srcVideo: 'video.mp4',
         srcBucket: 'src',
-        destBucket: 'dest'
+        destBucket: 'dest',
+        acceleratedTranscoding:'PREFERRED'
     };
 
     const _withframe = {
@@ -37,7 +38,8 @@ describe('#ENCODE::', () => {
         srcVideo: 'video.mp4',
         srcBucket: 'src',
         destBucket: 'dest',
-        frameCapture: true
+        frameCapture: true,
+        acceleratedTranscoding:'ENABLED'
     };
 
     const data = {
@@ -88,7 +90,8 @@ describe('#ENCODE::', () => {
             srcVideo: 'video.mp4',
             srcBucket: 'src',
             destBucket: 'dest',
-            isCustomTemplate: true
+            isCustomTemplate: true,
+            acceleratedTranscoding:'DISABLED'
         };
 
         const customTemplate = {
@@ -114,29 +117,6 @@ describe('#ENCODE::', () => {
 
         AWS.mock('MediaConvert', 'getJobTemplate', Promise.resolve(customTemplate));
         AWS.mock('MediaConvert', 'createJob', Promise.resolve(newJob));
-
-        const response = await lambda.handler(event);
-
-        const output = response.encodingJob.Settings.OutputGroups[0];
-        const settings = output.OutputGroupSettings.HlsGroupSettings;
-
-        expect(settings).not.to.be.null;
-        expect(settings.SegmentLength).to.equal(10);
-        expect(settings.MinSegmentLength).to.equal(2);
-    });
-
-    it('should not apply custom settings when template is default', async () => {
-        const event = {
-            guid: '12345678',
-            jobTemplate: 'default-template',
-            srcVideo: 'video.mp4',
-            srcBucket: 'src',
-            destBucket: 'dest',
-            isCustomTemplate: false
-        };
-
-        AWS.mock('MediaConvert', 'getJobTemplate', Promise.resolve(tmpl));
-        AWS.mock('MediaConvert', 'createJob', Promise.resolve(data));
 
         const response = await lambda.handler(event);
 
